@@ -15,22 +15,22 @@ with st.sidebar:
         ["Single", "Married Filing Jointly (MFJ)", "Married Filing Separately (MFS)", "Head of Household (HOH)"]
     )
     
-    start_age = st.number_input("Current Age", value=65)
-    end_age = st.number_input("Plan Until Age", value=100)
-    inflation = st.slider("Annual Inflation (%)", 0.0, 10.0, 3.0) / 100
-    growth = st.slider("Portfolio Growth Rate (%)", 0.0, 12.0, 6.0) / 100
-
+    start_age = st.number_input("Retire Age", value=65)
+    end_age = st.number_input("Plan Until Age", value=95)
+        
     st.header("💰 Starting Balances")
-    init_401k = st.number_input("401k Balance ($)", value=1_200_000, step=50000)
-    init_roth = st.number_input("Roth Balance ($)", value=250_000, step=10000)
-    init_brokerage = st.number_input("Brokerage Balance ($)", value=500_000, step=50000)
+    init_401k = st.number_input("401k Balance ($)", value=1_000_000, step=10000)
+    init_roth = st.number_input("Roth Balance ($)", value=500_000, step=10000)
+    init_brokerage = st.number_input("Brokerage Balance ($)", value=500_000, step=10000)
+    growth = st.slider("Portfolio Growth Rate (%)", 0.0, 15.0, 6.0) / 100
 
     st.header("📉 Spending & Income")
-    annual_spend_base = st.number_input("Target Annual Spending (Today's $)", value=120_000, step=5000)
+    annual_spend_base = st.number_input("Target Annual Spending (Today's $)", value=80_000, step=1000)
+    inflation = st.slider("Annual Inflation (%)", 0.0, 10.0, 3.0) / 100
     ss_start_age = st.number_input("SS Start Age", value=70)
-    ss_benefit = st.number_input("Annual SS Benefit (at start age)", value=45_000)
-    ss_cola = st.slider("SS COLA (%)", 0.0, 5.0, 2.0) / 100
-    state_tax_rate = st.slider("State Tax Rate (%)", 0.0, 13.0, 5.0) / 100
+    ss_benefit = st.number_input("Annual SS Benefit at start age", value=60_000)
+    ss_cola = st.slider("SSA Cost-of-Living Adjustment", 0.0, 5.0, 2.0) / 100
+    state_tax_rate = st.slider("State Tax Rate (%)", 0.0, 9.0, 1.0) / 100
 
 # --- TAX & STATUS LOGIC ---
 def get_status_params(status):
@@ -92,11 +92,18 @@ def run_simulation():
         w_roth = max(0.0, total_needed - w_401k - w_broker)
         
         history.append({
-            "Age": age, "Spending": spend, "Tax Paid": tax_paid, "Social Security": ss,
-            "401k Withdrawal": w_401k, "Brokerage Withdrawal": w_broker,
-            "Roth Withdrawal": w_roth, "Roth Conversion": conv_amt,
-            "401k Bal": b_401k, "Broker Bal": b_broker, "Roth Bal": b_roth,
-            "Networth": b_401k + b_roth + b_broker
+            "Age": age, 
+            "Spending": spend, 
+            "Tax Paid": tax_paid, 
+            "Social Security": ss,
+            "401k Withdrawal": w_401k, 
+            "Brokerage Withdrawal": w_broker,
+            "Roth Withdrawal": w_roth, 
+            "Roth Conversion": conv_amt,
+            "401k Bal": b_401k, 
+            "Broker Bal": b_broker, 
+            "Roth Bal": b_roth,
+            "Net Worth": b_401k + b_roth + b_broker
         })
         
         b_401k = max(0, (b_401k - rmd - conv_amt) * (1 + growth))
@@ -110,7 +117,7 @@ df = run_simulation()
 
 # Summary Metrics
 c1, c2, c3 = st.columns(3)
-with c1: st.metric("Final Networth", f"${df['Networth'].iloc[-1]:,.0F}")
+with c1: st.metric("Final Net Worth", f"${df['Net Worth'].iloc[-1]:,.0F}")
 with c2: st.metric("Total Tax Paid", f"${df['Tax Paid'].sum():,.0F}")
 with c3: st.metric("Ending Roth Bal", f"${df['Roth Bal'].iloc[-1]:,.0F}")
 
@@ -134,11 +141,45 @@ with chart_col2:
 
 # Data Table
 st.markdown("---")
-st.subheader("Interactive Retirement Table")
-st.dataframe(df.style.format("{:,.0f}"), use_container_width=True, height=750)
+st.subheader("Withdrawal Plan Details")
+# Compact table styling: smaller font and reduced cell padding
+st.markdown(
+    """
+    <style>
+    [data-testid="stDataFrame"] table {
+        font-size: 12px;
+        border-collapse: collapse;
+    }
+    [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td {
+        padding: 6px 8px;
+    }
+    [data-testid="stDataFrame"] tbody tr td {
+        white-space: nowrap;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+st.dataframe(df.style.format("{:,.0f}"), width=1500, height=800)
 
 # Excel Download
 buffer = io.BytesIO()
-with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-    df.to_excel(writer, index=False, sheet_name='Retirement Plan')
+#with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+#    df.to_excel(writer, index=False, sheet_name='Retirement Plan')
+
+with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+    df.to_excel(writer, sheet_name="Optimized Plan", index=False)
+    workbook = writer.book
+    worksheet = writer.sheets["Optimized Plan"]
+
+    # Formats
+    money_fmt = workbook.add_format({"num_format": "#,##0", "align": "right"})
+    hdr_fmt = workbook.add_format({"bold": True, "bg_color": "#CFE2F3", "border": 1})
+
+    # Apply formatting
+    worksheet.set_column("A:A", 8)  # Age
+    worksheet.set_column("B:L", 18, money_fmt)  # All money columns
+    for col_num, value in enumerate(df.columns.values):
+        worksheet.write(0, col_num, value, hdr_fmt)
+
 st.download_button("📥 Download Plan as XLSX", buffer.getvalue(), "RetirementPlan.xlsx")
