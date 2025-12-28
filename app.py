@@ -7,6 +7,34 @@ st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 
 st.title("🚀 Retirement Cashflow & Tax Simulator")
 
+# Default tax parameters (base year values). These populate editable inputs in the sidebar.
+TAX_DEFAULTS = {
+    "Married Filing Jointly (MFJ)": {
+        "brackets": [(0.10, 24800), (0.12, 100800), (0.22, 211100), (0.24, 403550)],
+        "std_deduct": 32200 + 3300,
+        "irmaa_tier_0": 218000,
+    },
+    "Head of Household (HOH)": {
+        "brackets": [(0.10, 17700), (0.12, 67450), (0.22, 105700), (0.24, 201750)],
+        "std_deduct": 24150 + 2050,
+        "irmaa_tier_0": 109000,
+    },
+    "Married Filing Separately (MFS)": {
+        "brackets": [(0.10, 12400), (0.12, 50400), (0.22, 105700), (0.24, 201775)],
+        "std_deduct": 16100 + 1650,
+        "irmaa_tier_0": 109000,
+    },
+    "Single": {
+        "brackets": [(0.10, 12400), (0.12, 50400), (0.22, 105700), (0.24, 255225)],
+        "std_deduct": 16100 + 2050,
+        "irmaa_tier_0": 109000,
+    },
+}
+
+
+def _sanitize_status_key(s: str) -> str:
+    return s.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+
 # --- SIDEBAR: INPUTS ---
 with st.sidebar:
     st.header("📋 Filing & Timeline")
@@ -16,24 +44,47 @@ with st.sidebar:
          "Married Filing Separately (MFS)", "Head of Household (HOH)"]
     )
 
+    # Editable tax parameters for the selected filing status
+    with st.expander("Edit Tax Brackets & Parameters", expanded=False):
+        key_base = _sanitize_status_key(status)
+        defaults = TAX_DEFAULTS.get(status, TAX_DEFAULTS["Single"]) 
+
+        st.write("Bracket tops (taxable income) — edit as needed")
+        # Render bracket limit number_inputs; keep rates fixed per defaults
+        bracket_limits = []
+        for i, (rate, lim) in enumerate(defaults["brackets"]):
+            lim_key = f"{key_base}_bracket_{i}"
+            val = st.number_input(f"{int(rate*100)}% bracket top", value=lim, step=1000, key=lim_key)
+            bracket_limits.append((rate, val))
+
+        std_key = f"{key_base}_std_deduct"
+        irmaa_key = f"{key_base}_irmaa_tier_0"
+        std_val = st.number_input("Standard Deduction", value=defaults["std_deduct"], step=1000, key=std_key)
+        irmaa_val = st.number_input("IRMAA Tier 0 Threshold", value=defaults["irmaa_tier_0"], step=1000, key=irmaa_key)
+
+        # Store what was captured in session_state-friendly variables (not strictly necessary)
+        st.session_state.setdefault(f"{key_base}_brackets_captured", bracket_limits)
+        st.session_state.setdefault(f"{key_base}_std_captured", std_val)
+        st.session_state.setdefault(f"{key_base}_irmaa_captured", irmaa_val)
+
     start_age = st.number_input("Retirement Age", value=65)
     end_age = st.number_input("Plan Until Age", value=95)
 
     st.header("💰 Starting Balances")
     init_401k = st.number_input(
-        "401k Balance ($)", value=1_000_000, step=10000)
-    init_roth = st.number_input("Roth Balance ($)", value=500_000, step=10000)
+        "401k Balance ($)", value=1_250_000, step=10000)
+    init_roth = st.number_input("Roth Balance ($)", value=600_000, step=10000)
     init_brokerage = st.number_input(
-        "Brokerage Balance ($)", value=500_000, step=10000)
+        "Brokerage Balance ($)", value=1_000_000, step=10000)
     growth = st.slider("Portfolio Growth Rate (%)", 0.0, 15.0, 5.0) / 100
 
     st.header("📉 Spending & Income")
     annual_spend_base = st.number_input(
-        "Target Annual Spending (Today's $)", value=100_000, step=1000)
+        "Target Annual Spending (Today's $)", value=140_000, step=1000)
     inflation = st.slider("Annual Inflation (%)", 0.0, 10.0, 3.0) / 100
     ss_start_age = st.number_input("SS Start Age", value=70)
     ss_benefit = st.number_input(
-        "Annual SS Benefit at start age", value=60_000)
+        "Annual SS Benefit at start age", value=78_000)
     ss_cola = st.slider("SSA Cost-of-Living Adjustment", 0.0, 5.0, 3.0) / 100
     state_tax_rate = st.slider("State Tax Rate (%)", 0.0, 9.0, 2.0) / 100
 
@@ -41,26 +92,29 @@ with st.sidebar:
 
 
 def get_status_params(status, exponential):
-    if status == "Married Filing Jointly (MFJ)":
-        brackets = [(0.10, 24800 * (1 + inflation) ** exponential), (0.12, 100800 * (1 + inflation) ** exponential),
-                    (0.22, 211100 * (1 + inflation) ** exponential), (0.24, 403550 * (1 + inflation) ** exponential)]
-        std_deduct = (32200 + 3300) * (1 + inflation) ** exponential
-        irmaa_tier_0 = 218000 * (1 + inflation) ** exponential
-    elif status == "Head of Household (HOH)":
-        brackets = [(0.10, 17700 * (1 + inflation) ** exponential), (0.12, 67450 * (1 + inflation) ** exponential),
-                    (0.22, 105700 * (1 + inflation) ** exponential), (0.24, 201750 * (1 + inflation) ** exponential)]
-        std_deduct = (24150 + 2050) * (1 + inflation) ** exponential
-        irmaa_tier_0 = 109000 * (1 + inflation) ** exponential
-    elif status == "Married Filing Separately (MFS)":
-        brackets = [(0.10, 12400 * (1 + inflation) ** exponential), (0.12, 50400 * (1 + inflation) ** exponential),
-                    (0.22, 105700 * (1 + inflation) ** exponential), (0.24, 201775 * (1 + inflation) ** exponential)]
-        std_deduct = (16100 + 1650) * (1 + inflation) ** exponential
-        irmaa_tier_0 = 109000 * (1 + inflation) ** exponential
-    else:  # Single
-        brackets = [(0.10, 12400 * (1 + inflation) ** exponential), (0.12, 50400 * (1 + inflation) ** exponential),
-                    (0.22, 105700 * (1 + inflation) ** exponential), (0.24, 255225 * (1 + inflation) ** exponential)]
-        std_deduct = (16100 + 2050) * (1 + inflation) ** exponential
-        irmaa_tier_0 = 109000 * (1 + inflation) ** exponential
+    """Return (brackets, std_deduct, irmaa_tier_0) using editable sidebar inputs when present.
+
+    `exponential` is used to inflation-adjust the base-year values provided by the user.
+    """
+    key_base = _sanitize_status_key(status)
+
+    # Build brackets from session_state if available; otherwise fall back to TAX_DEFAULTS
+    defaults = TAX_DEFAULTS.get(status, TAX_DEFAULTS["Single"]) 
+    brackets = []
+    for i, (rate, default_limit) in enumerate(defaults["brackets"]):
+        lim_key = f"{key_base}_bracket_{i}"
+        base_limit = st.session_state.get(lim_key, default_limit)
+        adj_limit = base_limit * (1 + inflation) ** exponential
+        brackets.append((rate, adj_limit))
+
+    std_key = f"{key_base}_std_deduct"
+    irmaa_key = f"{key_base}_irmaa_tier_0"
+    base_std = st.session_state.get(std_key, defaults["std_deduct"])
+    base_irmaa = st.session_state.get(irmaa_key, defaults["irmaa_tier_0"])
+
+    std_deduct = base_std * (1 + inflation) ** exponential
+    irmaa_tier_0 = base_irmaa * (1 + inflation) ** exponential
+
     return brackets, std_deduct, irmaa_tier_0
 
 
@@ -288,3 +342,10 @@ with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
 st.download_button("📥 Download Plan as XLSX",
                    buffer.getvalue(), "RetirementPlan.xlsx")
 
+# Reference links
+st.markdown("---")
+st.markdown("**References & Source Links**")
+st.markdown("- [IRS — Newsroom (official inflation-adjustment announcements)](https://www.irs.gov/newsroom)")
+st.markdown("- [IRS — Standard Deduction (overview)](https://apps.irs.gov/app/vita/content/00/00_13_005.jsp)")
+st.markdown("- [Social Security Administration — Medicare costs & IRMAA information](https://www.ssa.gov/benefits/medicare/medicare-premiums.html)")
+st.markdown("- [IRS Publication 590-B — Required Minimum Distributions (RMDs)](https://www.irs.gov/publications/p590b)")
