@@ -45,7 +45,6 @@ def get_status_params(status, exponential):
         brackets = [(0.10, 24800 * (1 + inflation) ** exponential), (0.12, 100800 * (1 + inflation) ** exponential),
                     (0.22, 211100 * (1 + inflation) ** exponential), (0.24, 403550 * (1 + inflation) ** exponential)]
         std_deduct = (32200 + 3300) * (1 + inflation) ** exponential
-        # TODO actual $218,000 use braket 2 for myself
         irmaa_tier_0 = 218000 * (1 + inflation) ** exponential
     elif status == "Head of Household (HOH)":
         brackets = [(0.10, 17700 * (1 + inflation) ** exponential), (0.12, 67450 * (1 + inflation) ** exponential),
@@ -288,3 +287,4 @@ with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
 
 st.download_button("📥 Download Plan as XLSX",
                    buffer.getvalue(), "RetirementPlan.xlsx")
+
