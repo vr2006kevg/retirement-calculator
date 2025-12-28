@@ -72,8 +72,8 @@ with st.sidebar:
 
     st.header("💰 Starting Balances")
     init_401k = st.number_input(
-        "401k Balance ($)", value=1_250_000, step=10000)
-    init_roth = st.number_input("Roth Balance ($)", value=600_000, step=10000)
+        "401k Balance ($)", value=1_000_000, step=10000)
+    init_roth = st.number_input("Roth Balance ($)", value=500_000, step=10000)
     init_brokerage = st.number_input(
         "Brokerage Balance ($)", value=1_000_000, step=10000)
     growth = st.slider("Portfolio Growth Rate (%)", 0.0, 15.0, 5.0) / 100
@@ -349,3 +349,4 @@ st.markdown("- [IRS — Newsroom (official inflation-adjustment announcements)](
 st.markdown("- [IRS — Standard Deduction (overview)](https://apps.irs.gov/app/vita/content/00/00_13_005.jsp)")
 st.markdown("- [Social Security Administration — Medicare costs & IRMAA information](https://www.ssa.gov/benefits/medicare/medicare-premiums.html)")
 st.markdown("- [IRS Publication 590-B — Required Minimum Distributions (RMDs)](https://www.irs.gov/publications/p590b)")
+
