@@ -231,18 +231,6 @@ UNIFORM_LIFETIME_TABLE = {
     100: 6.4
     # … continue as needed …
 }
-def calculate_rmd(balance, age):
-    divisor = UNIFORM_LIFETIME_TABLE.get(age)
-    if divisor is None:
-        return 0.0
-    return balance / divisor
-
-
-def calculate_rmd(balance, age):
-    divisor = UNIFORM_LIFETIME_TABLE.get(age)
-    if divisor is None:
-        return 0.0
-    return balance / divisor
 
 # --- SIMULATION ENGINE ---
 def run_simulation():
@@ -398,3 +386,4 @@ st.markdown("- [IRS Publication 590-B — Required Minimum Distributions (RMDs)]
 st.markdown("- [IRS — Capital Gains and Losses (long-term capital gains guidance)](https://www.irs.gov/taxtopics/tc409)")
 st.markdown("- [IRS reminds taxpayers their Social Security benefits may be taxable](https://www.irs.gov/newsroom/irs-reminds-taxpayers-their-social-security-benefits-may-be-taxable)")
 st.markdown("- [Social Security Administration — Medicare costs & IRMAA information](https://www.ssa.gov/benefits/medicare/medicare-premiums.html)")
+
