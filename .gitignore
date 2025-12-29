@@ -1,0 +1,11 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv
+venv/
+env/
+
+# Excel files generated during testing
+*.xlsx
