@@ -200,37 +200,7 @@ def get_status_params(status, years_ahead):
 
     return brackets, std_deduct, irmaa_tier_0
 
-UNIFORM_LIFETIME_TABLE = {
-    73: 26.5,
-    74: 25.5,
-    75: 24.6,
-    76: 23.7,
-    77: 22.9,
-    78: 22.0,
-    79: 21.1,
-    80: 20.2,
-    81: 19.4,
-    82: 18.5,
-    83: 17.7,
-    84: 16.8,
-    85: 16.0,
-    86: 15.2,
-    87: 14.4,
-    88: 13.7,
-    89: 12.9,
-    90: 12.2,
-    91: 11.5,
-    92: 10.8,
-    93: 10.1,
-    94: 9.5,
-    95: 8.9,
-    96: 8.4,
-    97: 7.8,
-    98: 7.3,
-    99: 6.8,
-    100: 6.4
-    # … continue as needed …
-}
+
 
 # --- SIMULATION ENGINE ---
 def run_simulation():
@@ -257,7 +227,6 @@ def run_simulation():
         ss_base_val, ss_upper_val, ltcg_0_val, ltcg_15_val, basis_pct,
     )
     return df
-
 
 # --- UI OUTPUT ---
 df = run_simulation()
@@ -386,4 +355,5 @@ st.markdown("- [IRS Publication 590-B — Required Minimum Distributions (RMDs)]
 st.markdown("- [IRS — Capital Gains and Losses (long-term capital gains guidance)](https://www.irs.gov/taxtopics/tc409)")
 st.markdown("- [IRS reminds taxpayers their Social Security benefits may be taxable](https://www.irs.gov/newsroom/irs-reminds-taxpayers-their-social-security-benefits-may-be-taxable)")
 st.markdown("- [Social Security Administration — Medicare costs & IRMAA information](https://www.ssa.gov/benefits/medicare/medicare-premiums.html)")
+
 
