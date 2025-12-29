@@ -2,10 +2,32 @@ import streamlit as st
 import pandas as pd
 import io
 
+# Pure simulation engine (cached & testable)
+from simulation import simulate_plan
+
 # Page configuration
 st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 
 st.title("🚀 Retirement Cashflow & Tax Simulator")
+
+# Usage instructions and disclaimer (moved to top for visibility)
+st.markdown("---")
+st.subheader("How to use this application")
+st.markdown(
+    "- **Adjust inputs in the left sidebar** to set filing status, starting balances, growth rates, spending, Social Security start age, and tax assumptions.\n"
+    "- **Open the 'Edit Tax Brackets & Parameters' expander** to tune brackets, standard deduction, IRMAA thresholds, Social Security and LTCG thresholds for your filing status.\n"
+    "- Use the **'Taxable account realized LTCG (%)'** slider to control the assumed annual realized LTCG from the taxable account.\n"
+    "- Review the charts and the **Withdrawal Plan Details** table for year-by-year results. Use the **Download Plan as XLSX** button to export the full table.\n"
+    "- Change inputs anytime to re-run the simulation — the app recalculates instantly."
+)
+
+st.markdown("---")
+st.subheader("Disclaimer")
+st.markdown(
+    "**This tool provides estimates for educational purposes only and is *not* financial, tax, or legal advice.**\n"
+    "Results are approximate: the app uses simplified tax rules and assumptions (e.g., provisional Social Security taxation, tiered LTCG approximations, and a heuristic for realized gains).\n"
+    "Always consult a qualified tax or financial professional before making decisions based on these results."
+)
 
 # Default tax parameters (base year values). These populate editable inputs in the sidebar.
 TAX_DEFAULTS = {
@@ -31,6 +53,22 @@ TAX_DEFAULTS = {
     },
 }
 
+# Approximate Social Security taxable thresholds (base-year values). These are editable defaults.
+SS_TAX_THRESHOLDS = {
+    "Single": (25000, 34000),
+    "Married Filing Jointly (MFJ)": (32000, 44000),
+    "Head of Household (HOH)": (25000, 34000),
+    "Married Filing Separately (MFS)": (0, 0),
+}
+
+# Long-term capital gains thresholds (base-year taxable income levels for 0% and 15% breakpoints).
+LTCG_THRESHOLDS = {
+    "Married Filing Jointly (MFJ)": {"0": 96700, "15": 518900},
+    "Single": {"0": 48350, "15": 459750},
+    "Head of Household (HOH)": {"0": 64700, "15": 489925},
+    "Married Filing Separately (MFS)": {"0": 48350, "15": 259400},
+}
+
 
 def _sanitize_status_key(s: str) -> str:
     return s.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
@@ -47,25 +85,64 @@ with st.sidebar:
     # Editable tax parameters for the selected filing status
     with st.expander("Edit Tax Brackets & Parameters", expanded=False):
         key_base = _sanitize_status_key(status)
-        defaults = TAX_DEFAULTS.get(status, TAX_DEFAULTS["Single"]) 
+        tax_brackets = TAX_DEFAULTS.get(status, TAX_DEFAULTS["Single"]) 
 
         st.write("Bracket tops (taxable income) — edit as needed")
         # Render bracket limit number_inputs; keep rates fixed per defaults
         bracket_limits = []
-        for i, (rate, lim) in enumerate(defaults["brackets"]):
+        for i, (rate, lim) in enumerate(tax_brackets["brackets"]):
             lim_key = f"{key_base}_bracket_{i}"
             val = st.number_input(f"{int(rate*100)}% bracket top", value=lim, step=1000, key=lim_key)
+            # Persist the widget's value (Streamlit stores widget values automatically; use setdefault to avoid assignment-time errors)
+            st.session_state.setdefault(lim_key, val)
             bracket_limits.append((rate, val))
 
+        # Keys are namespaced per-filing-status so values don't collide
         std_key = f"{key_base}_std_deduct"
         irmaa_key = f"{key_base}_irmaa_tier_0"
-        std_val = st.number_input("Standard Deduction", value=defaults["std_deduct"], step=1000, key=std_key)
-        irmaa_val = st.number_input("IRMAA Tier 0 Threshold", value=defaults["irmaa_tier_0"], step=1000, key=irmaa_key)
+        std_val = st.number_input("Standard Deduction", value=tax_brackets["std_deduct"], step=1000, key=std_key)
+        irmaa_val = st.number_input("IRMAA Tier 0 Threshold", value=tax_brackets["irmaa_tier_0"], step=1000, key=irmaa_key)
 
-        # Store what was captured in session_state-friendly variables (not strictly necessary)
+        # Ensure widget values are present under the canonical keys in session_state
+        # (Streamlit automatically stores widget values by `key`; use setdefault to be safe during initialization)
+        st.session_state.setdefault(std_key, std_val)
+        st.session_state.setdefault(irmaa_key, irmaa_val)
+
+        # Also store compact captures for UI or later reference
         st.session_state.setdefault(f"{key_base}_brackets_captured", bracket_limits)
         st.session_state.setdefault(f"{key_base}_std_captured", std_val)
         st.session_state.setdefault(f"{key_base}_irmaa_captured", irmaa_val)
+
+        # --- Editable Social Security & LTCG thresholds (base-year values) ---
+        ss_defaults = SS_TAX_THRESHOLDS.get(status, SS_TAX_THRESHOLDS["Single"])
+        ss_base_key = f"{key_base}_ss_base"
+        ss_upper_key = f"{key_base}_ss_upper"
+        ss_base_val = st.number_input("SS Tax Threshold — lower (base-year)", value=ss_defaults[0], step=1000, key=ss_base_key)
+        ss_upper_val = st.number_input("SS Tax Threshold — upper (base-year)", value=ss_defaults[1], step=1000, key=ss_upper_key)
+        st.session_state.setdefault(ss_base_key, ss_base_val)
+        st.session_state.setdefault(ss_upper_key, ss_upper_val)
+        st.session_state.setdefault(f"{key_base}_ss_captured", (ss_base_val, ss_upper_val))
+
+        ltcg_defaults = LTCG_THRESHOLDS.get(status, LTCG_THRESHOLDS["Single"])
+        ltcg_0_key = f"{key_base}_ltcg_0"
+        ltcg_15_key = f"{key_base}_ltcg_15"
+        ltcg_0_val = st.number_input("LTCG 0% Threshold (base-year)", value=ltcg_defaults["0"], step=1000, key=ltcg_0_key)
+        ltcg_15_val = st.number_input("LTCG 15% Threshold (base-year)", value=ltcg_defaults["15"], step=1000, key=ltcg_15_key)
+        st.session_state.setdefault(ltcg_0_key, ltcg_0_val)
+        st.session_state.setdefault(ltcg_15_key, ltcg_15_val)
+        st.session_state.setdefault(f"{key_base}_ltcg_captured", (ltcg_0_val, ltcg_15_val))
+
+        if st.button("Reset tax defaults for this status"):
+            # Restore base defaults for this filing status
+            for i, (rate, lim) in enumerate(tax_brackets["brackets"]):
+                st.session_state[f"{key_base}_bracket_{i}"] = lim
+            st.session_state[std_key] = tax_brackets["std_deduct"]
+            st.session_state[irmaa_key] = tax_brackets["irmaa_tier_0"]
+            st.session_state[ss_base_key] = ss_defaults[0]
+            st.session_state[ss_upper_key] = ss_defaults[1]
+            st.session_state[ltcg_0_key] = ltcg_defaults["0"]
+            st.session_state[ltcg_15_key] = ltcg_defaults["15"]
+            st.experimental_rerun()
 
     start_age = st.number_input("Retirement Age", value=65)
     end_age = st.number_input("Plan Until Age", value=95)
@@ -73,25 +150,31 @@ with st.sidebar:
     st.header("💰 Starting Balances")
     init_401k = st.number_input(
         "401k Balance ($)", value=1_000_000, step=10000)
-    init_roth = st.number_input("Roth Balance ($)", value=500_000, step=10000)
-    init_brokerage = st.number_input(
-        "Brokerage Balance ($)", value=1_000_000, step=10000)
-    growth = st.slider("Portfolio Growth Rate (%)", 0.0, 15.0, 5.0) / 100
+    growth401k = st.slider("401k Growth Rate (%)", 0.0, 15.0, 5.0) / 100
 
+    init_roth = st.number_input("Roth Balance ($)", value=500_000, step=10000)
+    growthRoth = st.slider("Roth Growth Rate (%)", 0.0, 15.0, 5.0) / 100
+
+    init_taxable_acct = st.number_input(
+        "Taxable account Balance ($)", value=500_000, step=10000)
+    growthTaxable = st.slider("Taxable account Growth Rate (%)", 0.0, 15.0, 5.0) / 100
+    # Taxable account cost basis fraction (used to compute realized LTCG from withdrawals)
+    basis_pct = st.slider("Taxable account initial cost basis (%)", 0.0, 100.0, 60.0) / 100
+    # Assumed fraction of taxable account realized each year as LT gains (for modeling realized LTCG)
+    ltcg_real_rate = st.slider("Taxable account realized LTCG (%)", 0.0, 50.0, 10.0) / 100
+    
     st.header("📉 Spending & Income")
     annual_spend_base = st.number_input(
-        "Target Annual Spending (Today's $)", value=140_000, step=1000)
+        "Target Annual Spending (Today's $)", value=100_000, step=1000)
     inflation = st.slider("Annual Inflation (%)", 0.0, 10.0, 3.0) / 100
     ss_start_age = st.number_input("SS Start Age", value=70)
     ss_benefit = st.number_input(
-        "Annual SS Benefit at start age", value=78_000)
+        "Annual SS Benefit at start age", value=60_000)
     ss_cola = st.slider("SSA Cost-of-Living Adjustment", 0.0, 5.0, 3.0) / 100
     state_tax_rate = st.slider("State Tax Rate (%)", 0.0, 9.0, 2.0) / 100
 
 # --- TAX & STATUS LOGIC ---
-
-
-def get_status_params(status, exponential):
+def get_status_params(status, years_ahead):
     """Return (brackets, std_deduct, irmaa_tier_0) using editable sidebar inputs when present.
 
     `exponential` is used to inflation-adjust the base-year values provided by the user.
@@ -99,30 +182,69 @@ def get_status_params(status, exponential):
     key_base = _sanitize_status_key(status)
 
     # Build brackets from session_state if available; otherwise fall back to TAX_DEFAULTS
-    defaults = TAX_DEFAULTS.get(status, TAX_DEFAULTS["Single"]) 
+    tax_brackets = TAX_DEFAULTS.get(status, TAX_DEFAULTS["Single"]) 
     brackets = []
-    for i, (rate, default_limit) in enumerate(defaults["brackets"]):
+    for i, (rate, default_limit) in enumerate(tax_brackets["brackets"]):
         lim_key = f"{key_base}_bracket_{i}"
         base_limit = st.session_state.get(lim_key, default_limit)
-        adj_limit = base_limit * (1 + inflation) ** exponential
+        adj_limit = base_limit * (1 + inflation) ** years_ahead
         brackets.append((rate, adj_limit))
 
     std_key = f"{key_base}_std_deduct"
     irmaa_key = f"{key_base}_irmaa_tier_0"
-    base_std = st.session_state.get(std_key, defaults["std_deduct"])
-    base_irmaa = st.session_state.get(irmaa_key, defaults["irmaa_tier_0"])
+    base_std = st.session_state.get(std_key, tax_brackets["std_deduct"])
+    base_irmaa = st.session_state.get(irmaa_key, tax_brackets["irmaa_tier_0"])
 
-    std_deduct = base_std * (1 + inflation) ** exponential
-    irmaa_tier_0 = base_irmaa * (1 + inflation) ** exponential
+    std_deduct = base_std * (1 + inflation) ** years_ahead
+    irmaa_tier_0 = base_irmaa * (1 + ss_cola) ** years_ahead
 
     return brackets, std_deduct, irmaa_tier_0
 
 
-def calculate_taxes(ord_inc, lt_cap_gains, ss_total, status_name, exponential):
-    # ord_inc: ordinary taxable events (RMD + conversions)
-    # lt_cap_gains: long-term capital gains (preferential rates)
-    brackets, deduction, _ = get_status_params(status_name, exponential)
-    taxable_ss = 0.85 * ss_total
+# --- TAX HELPERS & IMPROVEMENTS ---
+
+
+def compute_taxable_ss(ss_amount, other_income, status_name, years_ahead):
+    """Approximate the taxable portion of Social Security benefits using 'provisional income' rules.
+
+    This uses the standard two-threshold approach: below `base` -> 0% taxed; between `base` and
+    `upper` -> up to 50% taxed; above `upper` -> up to 85% taxed. The thresholds are inflation-adjusted.
+    """
+    key_base = _sanitize_status_key(status_name)
+    base_default, upper_default = SS_TAX_THRESHOLDS.get(status_name, SS_TAX_THRESHOLDS["Single"])
+    base_raw = st.session_state.get(f"{key_base}_ss_base", base_default)
+    upper_raw = st.session_state.get(f"{key_base}_ss_upper", upper_default)
+    base = base_raw * (1 + inflation) ** years_ahead
+    upper = upper_raw * (1 + inflation) ** years_ahead
+
+    # Provisional income (approx): other taxable income + 0.5 * SS
+    provisional = other_income + 0.5 * ss_amount
+
+    # MFS special-case (often results in 85% taxable in practice)
+    if status_name == "Married Filing Separately (MFS)":
+        return 0.85 * ss_amount
+
+    if provisional <= base:
+        return 0.0
+    elif provisional <= upper:
+        return min(0.5 * ss_amount, provisional - base)
+    else:
+        return min(0.85 * ss_amount, 0.5 * ss_amount + (provisional - upper))
+
+
+def calculate_taxes(ord_inc, lt_cap_gains, ss_total, status_name, years_ahead):
+    """Compute federal + state tax for a given year.
+
+    - ord_inc: ordinary taxable events (RMD + conversions)
+    - lt_cap_gains: long-term capital gains (realized)
+    - ss_total: total Social Security benefit for the year
+    - status_name: filing status string (used for thresholds)
+    - exponential: years ahead used to inflation-adjust thresholds
+    """
+    brackets, deduction, _ = get_status_params(status_name, years_ahead)
+
+    # Compute taxable Social Security using provisional income approximation (includes LTCG in other income)
+    taxable_ss = compute_taxable_ss(ss_total, ord_inc + lt_cap_gains, status_name, years_ahead)
 
     # Taxable ordinary income after deduction
     taxable_ordinary = max(0.0, ord_inc + taxable_ss - deduction)
@@ -135,19 +257,42 @@ def calculate_taxes(ord_inc, lt_cap_gains, ss_total, status_name, exponential):
             tax_ordinary += (limit - prev_limit) * rate
             prev_limit = limit
         else:
-            tax_ordinary += (taxable_ordinary - prev_limit) * rate
+            tax_ordinary += max(0.0, taxable_ordinary - prev_limit) * rate
+            prev_limit = taxable_ordinary
             break
 
-    # 3. Enhanced LTCG Logic: The 0% Bracket check
-    # MFJ 0% LTCG limit is roughly $94k taxable income.
-    # This checks if there is 'room' under that limit after ordinary income.
-    ltcg_0_limit = 94050 * (1 + inflation) ** exponential
-    taxable_ltcg = max(0.0, lt_cap_gains -
-                       max(0.0, ltcg_0_limit - taxable_ordinary))
-    tax_ltcg = taxable_ltcg * 0.15
+    # Tax any income above the top bracket at the top bracket's rate
+    if taxable_ordinary > prev_limit:
+        last_rate = brackets[-1][0]
+        tax_ordinary += (taxable_ordinary - prev_limit) * last_rate
 
-    # State tax approximation applied to taxable ordinary + LTCG
-    state_taxable = taxable_ordinary + lt_cap_gains
+    # 2. Tiered LTCG treatment (0% / 15% / 20%) using status-specific thresholds
+    key_base = _sanitize_status_key(status_name)
+    base_0_default = LTCG_THRESHOLDS.get(status_name, LTCG_THRESHOLDS["Single"])["0"]
+    base_15_default = LTCG_THRESHOLDS.get(status_name, LTCG_THRESHOLDS["Single"])["15"]
+    base_0 = st.session_state.get(f"{key_base}_ltcg_0", base_0_default)
+    base_15 = st.session_state.get(f"{key_base}_ltcg_15", base_15_default)
+    th0 = base_0 * (1 + inflation) ** years_ahead
+    th15 = base_15 * (1 + inflation) ** years_ahead
+
+    # 0% bucket: how much LTCG fits under the 0% threshold after accounting for ordinary income
+    if taxable_ordinary >= th0:
+        ltcg_0 = 0.0
+    else:
+        ltcg_0 = min(lt_cap_gains, max(0.0, th0 - taxable_ordinary))
+    remaining = max(0.0, lt_cap_gains - ltcg_0)
+
+    # 15% bucket: fits between th0 and th15
+    if taxable_ordinary + ltcg_0 >= th15:
+        ltcg_15 = 0.0
+    else:
+        ltcg_15 = min(remaining, max(0.0, th15 - (taxable_ordinary + ltcg_0)))
+    ltcg_20 = max(0.0, remaining - ltcg_15)
+
+    tax_ltcg = ltcg_15 * 0.15 + ltcg_20 * 0.20
+
+    # State tax approximation applied to (taxable ordinary + taxable LTCG portions)
+    state_taxable = taxable_ordinary + ltcg_15 + ltcg_20
     state_tax = state_taxable * state_tax_rate
 
     return tax_ordinary + tax_ltcg + state_tax
@@ -184,6 +329,11 @@ UNIFORM_LIFETIME_TABLE = {
     100: 6.4
     # … continue as needed …
 }
+def calculate_rmd(balance, age):
+    divisor = UNIFORM_LIFETIME_TABLE.get(age)
+    if divisor is None:
+        return 0.0
+    return balance / divisor
 
 
 def calculate_rmd(balance, age):
@@ -193,78 +343,38 @@ def calculate_rmd(balance, age):
     return balance / divisor
 
 # --- SIMULATION ENGINE ---
-
-
 def run_simulation():
-    history = []
-    b_401k, b_roth, b_broker = init_401k, init_roth, init_brokerage
+    # Capture editable parameters and call the pure, cached simulation function
+    key_base = _sanitize_status_key(status)
+    captured = st.session_state.get(f"{key_base}_brackets_captured")
+    if captured:
+        bracket_limits = tuple(lim for _, lim in captured)
+    else:
+        bracket_limits = tuple(lim for _, lim in TAX_DEFAULTS.get(status, TAX_DEFAULTS["Single"])['brackets'])
 
-    for age in range(start_age, end_age + 1):
-        spend = annual_spend_base * (1 + inflation) ** (age - start_age)
-        ss = ss_benefit * (1 + ss_cola) ** (age -
-                                            ss_start_age) if age >= ss_start_age else 0.0
+    std_val = st.session_state.get(f"{key_base}_std_deduct", TAX_DEFAULTS.get(status, TAX_DEFAULTS['Single'])['std_deduct'])
+    irmaa_val = st.session_state.get(f"{key_base}_irmaa_tier_0", TAX_DEFAULTS.get(status, TAX_DEFAULTS['Single'])['irmaa_tier_0'])
+    ss_base_val = st.session_state.get(f"{key_base}_ss_base", SS_TAX_THRESHOLDS.get(status, SS_TAX_THRESHOLDS['Single'])[0])
+    ss_upper_val = st.session_state.get(f"{key_base}_ss_upper", SS_TAX_THRESHOLDS.get(status, SS_TAX_THRESHOLDS['Single'])[1])
+    ltcg_0_val = st.session_state.get(f"{key_base}_ltcg_0", LTCG_THRESHOLDS.get(status, LTCG_THRESHOLDS['Single'])['0'])
+    ltcg_15_val = st.session_state.get(f"{key_base}_ltcg_15", LTCG_THRESHOLDS.get(status, LTCG_THRESHOLDS['Single'])['15'])
 
-        # RMD based on IRS Uniform Lifetime Table
-        rmd = calculate_rmd(b_401k, age)
-        long_term_capital_gain = b_broker * 0.02
-        # Recompute tax parameters for this year (inflation-adjusted)
-        brackets, deduction, irmaa_cap = get_status_params(
-            status, age - start_age)
-
-        # Plan Roth conversions to use low tax brackets (fill 12% bracket) and avoid IRMAA
-        taxable_ss = 0.85 * ss
-        taxable_ordinary_before_conv = max(0.0, rmd + taxable_ss - deduction)
-
-        # Find the top of the 12% bracket (if present)
-        twelve_pct_limit = None
-        for rate, limit in brackets:
-            if abs(rate - 0.12) < 1e-9:
-                twelve_pct_limit = limit
-                break
-        if twelve_pct_limit is None:
-            twelve_pct_limit = brackets[1][1] if len(
-                brackets) > 1 else brackets[-1][1]
-
-        room_in_12 = max(0.0, twelve_pct_limit - taxable_ordinary_before_conv)
-        room_irmaa = max(0.0, irmaa_cap -
-                         (rmd + long_term_capital_gain + taxable_ss))
-
-        conv_candidate = max(0.0, min(b_401k - rmd, room_in_12))
-        conv_amt = min(conv_candidate, room_irmaa)
-
-        tax_paid = calculate_taxes(
-            rmd + conv_amt, long_term_capital_gain, ss, status, age - start_age)
-
-        total_needed = spend + tax_paid - ss
-        w_401k = rmd
-        w_broker = min(b_broker, max(0.0, total_needed - w_401k))
-        w_roth = max(0.0, total_needed - w_401k - w_broker)
-
-        history.append({
-            "Age": age,
-            "Spending": spend,
-            "Tax Paid": tax_paid,
-            "Social Security": ss,
-            "401k Withdrawal": w_401k,
-            "Brokerage Withdrawal": w_broker,
-            "Roth Withdrawal": w_roth,
-            "Roth Conversion": conv_amt,
-            "401k Bal": b_401k,
-            "Broker Bal": b_broker,
-            "Roth Bal": b_roth,
-            "Net Worth": b_401k + b_roth + b_broker
-        })
-
-        b_401k = max(0, (b_401k - rmd - conv_amt) * (1 + growth))
-        b_broker = max(0, (b_broker - w_broker +
-                       long_term_capital_gain) * (1 + growth))
-        b_roth = max(0, (b_roth + conv_amt - w_roth) * (1 + growth))
-
-    return pd.DataFrame(history)
+    df = simulate_plan(
+        start_age, end_age, init_401k, init_roth, init_taxable_acct,
+        growth401k, growthRoth, growthTaxable, annual_spend_base, inflation,
+        ss_start_age, ss_benefit, ss_cola, state_tax_rate, ltcg_real_rate,
+        status, bracket_limits, std_val, irmaa_val,
+        ss_base_val, ss_upper_val, ltcg_0_val, ltcg_15_val, basis_pct,
+    )
+    return df
 
 
 # --- UI OUTPUT ---
 df = run_simulation()
+
+# Diagnostics: warn if any year didn't converge
+if 'Converged' in df.columns and not df['Converged'].all():
+    st.warning("Some years did not converge; results may be approximate. Consider reducing LTCG realization rate or reviewing assumptions.")
 
 # Summary Metrics
 c1, c2, c3 = st.columns(3)
@@ -282,7 +392,7 @@ chart_col1, chart_col2 = st.columns(2)
 with chart_col1:
     st.subheader("Portfolio Growth & Composition")
     # Stacked Area Chart for Balances
-    st.area_chart(df.set_index("Age")[["401k Bal", "Broker Bal", "Roth Bal"]])
+    st.area_chart(df.set_index("Age")[["401k Bal", "Taxable account Bal", "Roth Bal"]])
     st.caption("Visualizes the depletion of different account types over time.")
 
 with chart_col2:
@@ -290,7 +400,7 @@ with chart_col2:
     # Multi-series Bar/Line Chart for Cashflow
     cash_flow_df = df[["Age", "Spending", "Social Security"]].copy()
     cash_flow_df["Total Withdrawals"] = df["401k Withdrawal"] + \
-        df["Brokerage Withdrawal"] + df["Roth Withdrawal"]
+        df["Taxable account Withdrawal"] + df["Roth Withdrawal"]
     st.bar_chart(cash_flow_df.set_index("Age"))
     st.caption(
         "Shows how Spending is met by Social Security and Portfolio Withdrawals.")
@@ -298,6 +408,8 @@ with chart_col2:
 # Data Table
 st.markdown("---")
 st.subheader("Withdrawal Plan Details")
+st.markdown("**Stage Legend:**  ")
+st.markdown("- **Golden Stage**: Early years with healthy assets; minimal withdrawals required.  \n- **Conversion Stage**: Active Roth conversions are happening.  \n- **401k Withdrawal Stage**: Largest withdrawals are from the 401(k).  \n- **Taxable Withdrawal Stage**: Largest withdrawals are from the taxable account.  \n- **Roth Withdrawal Stage**: Largest withdrawals are from the Roth account.  \n- **SS Only**: Social Security alone covers spending.  \n- **Depleted**: Portfolio is exhausted.")
 # Compact table styling: smaller font and reduced cell padding
 st.markdown(
     """
@@ -316,17 +428,47 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-st.dataframe(df.style.format("{:,.0f}"), width=1500, height=800)
+# Apply per-column header colors using pandas Styler
+color_map = {
+    "Spending": "red",
+    "Tax Paid": "red",
+    "Social Security": "blue",
+    "401k Withdrawal": "blue",
+    "Taxable account Withdrawal": "blue",
+    "Roth Withdrawal": "blue",
+    "Roth Conversion": "blue",
+    "401k Bal": "green",
+    "Taxable account Bal": "green",
+    "Roth Bal": "green",
+    "Net Worth": "green",
+}
+
+styles = []
+for i, col in enumerate(df.columns):
+    col_color = color_map.get(col)
+    if col_color:
+        styles.append({
+            "selector": f"th.col_heading.level0.col{i}",
+            "props": [("color", col_color), ("font-weight", "bold")],
+        })
+
+# Apply numeric formatting only to numeric columns to avoid formatting errors for string columns
+numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+formatters = {col: "{:,.0f}" for col in numeric_cols}
+styled = df.style.format(formatters).set_table_styles(styles).set_table_attributes('class="withdrawal-plan-table"')
+# Render the styled DataFrame as HTML so the header styles are preserved and add hover CSS
+html = styled.to_html()
+st.markdown(
+    '<style>.withdrawal-plan-table tbody tr:hover{background-color:#fff2cc; cursor:pointer}</style>' + html,
+    unsafe_allow_html=True,
+)
 
 # Excel Download
 buffer = io.BytesIO()
-# with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-#    df.to_excel(writer, index=False, sheet_name='Retirement Plan')
-
 with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-    df.to_excel(writer, sheet_name="Optimized Plan", index=False)
+    df.to_excel(writer, sheet_name="Withdrawal Plan", index=False)
     workbook = writer.book
-    worksheet = writer.sheets["Optimized Plan"]
+    worksheet = writer.sheets["Withdrawal Plan"]
 
     # Formats
     money_fmt = workbook.add_format({"num_format": "#,##0", "align": "right"})
@@ -334,19 +476,27 @@ with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
         {"bold": True, "bg_color": "#CFE2F3", "border": 1})
 
     # Apply formatting
-    worksheet.set_column("A:A", 8)  # Age
-    worksheet.set_column("B:L", 18, money_fmt)  # All money columns
+    worksheet.set_column("A:A", 24)  # Retirement Stage
+    worksheet.set_column("B:B", 8)   # Age
+    worksheet.set_column("C:L", 18, money_fmt)  # All money columns
     for col_num, value in enumerate(df.columns.values):
         worksheet.write(0, col_num, value, hdr_fmt)
 
 st.download_button("📥 Download Plan as XLSX",
                    buffer.getvalue(), "RetirementPlan.xlsx")
 
+# Descriptive notes about the downloaded file
+st.markdown("**Download Notes:**")
+st.markdown("- The XLSX file contains the full yearly simulation table including balances, withdrawals, conversions, and taxes.")
+st.markdown("- Values are presented in rounded whole dollars; use the dataframe in the app for interactive inspection.")
+st.markdown("- To update the exported plan, change assumptions in the sidebar (growth, spending, taxes) and re-download.")
+
 # Reference links
 st.markdown("---")
 st.markdown("**References & Source Links**")
-st.markdown("- [IRS — Newsroom (official inflation-adjustment announcements)](https://www.irs.gov/newsroom)")
+st.markdown("- [Federal income tax rates and brackets](https://www.irs.gov/filing/federal-income-tax-rates-and-brackets)")
 st.markdown("- [IRS — Standard Deduction (overview)](https://apps.irs.gov/app/vita/content/00/00_13_005.jsp)")
-st.markdown("- [Social Security Administration — Medicare costs & IRMAA information](https://www.ssa.gov/benefits/medicare/medicare-premiums.html)")
 st.markdown("- [IRS Publication 590-B — Required Minimum Distributions (RMDs)](https://www.irs.gov/publications/p590b)")
-
+st.markdown("- [IRS — Capital Gains and Losses (long-term capital gains guidance)](https://www.irs.gov/taxtopics/tc409)")
+st.markdown("- [IRS reminds taxpayers their Social Security benefits may be taxable](https://www.irs.gov/newsroom/irs-reminds-taxpayers-their-social-security-benefits-may-be-taxable)")
+st.markdown("- [Social Security Administration — Medicare costs & IRMAA information](https://www.ssa.gov/benefits/medicare/medicare-premiums.html)")
