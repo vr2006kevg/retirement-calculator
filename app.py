@@ -200,104 +200,6 @@ def get_status_params(status, years_ahead):
 
     return brackets, std_deduct, irmaa_tier_0
 
-
-# --- TAX HELPERS & IMPROVEMENTS ---
-
-
-def compute_taxable_ss(ss_amount, other_income, status_name, years_ahead):
-    """Approximate the taxable portion of Social Security benefits using 'provisional income' rules.
-
-    This uses the standard two-threshold approach: below `base` -> 0% taxed; between `base` and
-    `upper` -> up to 50% taxed; above `upper` -> up to 85% taxed. The thresholds are inflation-adjusted.
-    """
-    key_base = _sanitize_status_key(status_name)
-    base_default, upper_default = SS_TAX_THRESHOLDS.get(status_name, SS_TAX_THRESHOLDS["Single"])
-    base_raw = st.session_state.get(f"{key_base}_ss_base", base_default)
-    upper_raw = st.session_state.get(f"{key_base}_ss_upper", upper_default)
-    base = base_raw * (1 + inflation) ** years_ahead
-    upper = upper_raw * (1 + inflation) ** years_ahead
-
-    # Provisional income (approx): other taxable income + 0.5 * SS
-    provisional = other_income + 0.5 * ss_amount
-
-    # MFS special-case (often results in 85% taxable in practice)
-    if status_name == "Married Filing Separately (MFS)":
-        return 0.85 * ss_amount
-
-    if provisional <= base:
-        return 0.0
-    elif provisional <= upper:
-        return min(0.5 * ss_amount, provisional - base)
-    else:
-        return min(0.85 * ss_amount, 0.5 * ss_amount + (provisional - upper))
-
-
-def calculate_taxes(ord_inc, lt_cap_gains, ss_total, status_name, years_ahead):
-    """Compute federal + state tax for a given year.
-
-    - ord_inc: ordinary taxable events (RMD + conversions)
-    - lt_cap_gains: long-term capital gains (realized)
-    - ss_total: total Social Security benefit for the year
-    - status_name: filing status string (used for thresholds)
-    - exponential: years ahead used to inflation-adjust thresholds
-    """
-    brackets, deduction, _ = get_status_params(status_name, years_ahead)
-
-    # Compute taxable Social Security using provisional income approximation (includes LTCG in other income)
-    taxable_ss = compute_taxable_ss(ss_total, ord_inc + lt_cap_gains, status_name, years_ahead)
-
-    # Taxable ordinary income after deduction
-    taxable_ordinary = max(0.0, ord_inc + taxable_ss - deduction)
-
-    # Compute ordinary income tax using progressive brackets
-    tax_ordinary = 0.0
-    prev_limit = 0.0
-    for rate, limit in brackets:
-        if taxable_ordinary > limit:
-            tax_ordinary += (limit - prev_limit) * rate
-            prev_limit = limit
-        else:
-            tax_ordinary += max(0.0, taxable_ordinary - prev_limit) * rate
-            prev_limit = taxable_ordinary
-            break
-
-    # Tax any income above the top bracket at the top bracket's rate
-    if taxable_ordinary > prev_limit:
-        last_rate = brackets[-1][0]
-        tax_ordinary += (taxable_ordinary - prev_limit) * last_rate
-
-    # 2. Tiered LTCG treatment (0% / 15% / 20%) using status-specific thresholds
-    key_base = _sanitize_status_key(status_name)
-    base_0_default = LTCG_THRESHOLDS.get(status_name, LTCG_THRESHOLDS["Single"])["0"]
-    base_15_default = LTCG_THRESHOLDS.get(status_name, LTCG_THRESHOLDS["Single"])["15"]
-    base_0 = st.session_state.get(f"{key_base}_ltcg_0", base_0_default)
-    base_15 = st.session_state.get(f"{key_base}_ltcg_15", base_15_default)
-    th0 = base_0 * (1 + inflation) ** years_ahead
-    th15 = base_15 * (1 + inflation) ** years_ahead
-
-    # 0% bucket: how much LTCG fits under the 0% threshold after accounting for ordinary income
-    if taxable_ordinary >= th0:
-        ltcg_0 = 0.0
-    else:
-        ltcg_0 = min(lt_cap_gains, max(0.0, th0 - taxable_ordinary))
-    remaining = max(0.0, lt_cap_gains - ltcg_0)
-
-    # 15% bucket: fits between th0 and th15
-    if taxable_ordinary + ltcg_0 >= th15:
-        ltcg_15 = 0.0
-    else:
-        ltcg_15 = min(remaining, max(0.0, th15 - (taxable_ordinary + ltcg_0)))
-    ltcg_20 = max(0.0, remaining - ltcg_15)
-
-    tax_ltcg = ltcg_15 * 0.15 + ltcg_20 * 0.20
-
-    # State tax approximation applied to (taxable ordinary + taxable LTCG portions)
-    state_taxable = taxable_ordinary + ltcg_15 + ltcg_20
-    state_tax = state_taxable * state_tax_rate
-
-    return tax_ordinary + tax_ltcg + state_tax
-
-
 UNIFORM_LIFETIME_TABLE = {
     73: 26.5,
     74: 25.5,
@@ -371,10 +273,6 @@ def run_simulation():
 
 # --- UI OUTPUT ---
 df = run_simulation()
-
-# Diagnostics: warn if any year didn't converge
-if 'Converged' in df.columns and not df['Converged'].all():
-    st.warning("Some years did not converge; results may be approximate. Consider reducing LTCG realization rate or reviewing assumptions.")
 
 # Summary Metrics
 c1, c2, c3 = st.columns(3)
