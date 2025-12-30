@@ -76,7 +76,7 @@ def _get_status_params(brackets, std_val, irmaa_val, inflation, ss_cola, years_a
 
 def simulate_plan(start_age, end_age, init_401k, init_roth, init_taxable_acct,
                   growth401k, growthRoth, growthTaxable, annual_spend_base, inflation,
-                  ss_start_age, ss_benefit, ss_cola, state_tax_rate, ltcg_real_rate,
+                  ss_start_age, ss_benefit, ss_cola, state_tax_rate, forced_capital_gain,
                   status, bracket_limits, std_val, irmaa_val,
                   ss_base_val, ss_upper_val, ltcg_0_val, ltcg_15_val, basis_pct):
     brackets = _reconstruct_brackets(status, bracket_limits)
@@ -97,7 +97,7 @@ def simulate_plan(start_age, end_age, init_401k, init_roth, init_taxable_acct,
         rmd = calculate_rmd(b_401k, age)
 
         # Estimate internal turnover (unavoidable realized gains from mutual funds)
-        planned_sale_amount = b_taxable * ltcg_real_rate
+        planned_sale_amount = b_taxable * forced_capital_gain
         basis_frac = (basis_amount / b_taxable) if b_taxable > 0 else 0.0
         planned_realized_gain = planned_sale_amount * (1 - basis_frac)
         est_ltcg = planned_realized_gain
