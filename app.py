@@ -159,9 +159,20 @@ with st.sidebar:
         "Taxable account Balance ($)", value=500_000, step=10000)
     growthTaxable = st.slider("Taxable account Growth Rate (%)", 0.0, 15.0, 5.0) / 100
     # Taxable account cost basis fraction (used to compute realized LTCG from withdrawals)
-    basis_pct = st.slider("Taxable account initial cost basis (%)", 0.0, 100.0, 60.0) / 100
-    # Assumed fraction of taxable account realized each year as LT gains (for modeling realized LTCG)
-    ltcg_real_rate = st.slider("Taxable account realized LTCG (%)", 0.0, 50.0, 10.0) / 100
+    basis_pct = st.slider("Taxable account initial cost basis (%)", 0.0, 100.0, 80.0) / 100
+
+    # Active mutual funds or ETFs may generate unavoidable LTCG each year due to turnover or distributions.
+    # ETF investors can often keep this near zero by choosing tax-efficient funds.
+    
+    forced_capital_gain = st.slider("Annual forced capital gain realization (%)", 
+        0.0, 10.0, 1.0, 
+        help=(
+        "Represents unavoidable long-term capital gains generated internally "
+        "by the taxable account each year (e.g., fund turnover or capital gain "
+        "distributions), even without withdrawals. "
+        "Use near 0% for tax-efficient ETFs; higher for active funds."
+        )                                    
+    ) / 100
     
     st.header("📉 Spending & Income")
     annual_spend_base = st.number_input(
@@ -222,7 +233,7 @@ def run_simulation():
     df = simulate_plan(
         start_age, end_age, init_401k, init_roth, init_taxable_acct,
         growth401k, growthRoth, growthTaxable, annual_spend_base, inflation,
-        ss_start_age, ss_benefit, ss_cola, state_tax_rate, ltcg_real_rate,
+        ss_start_age, ss_benefit, ss_cola, state_tax_rate, forced_capital_gain,
         status, bracket_limits, std_val, irmaa_val,
         ss_base_val, ss_upper_val, ltcg_0_val, ltcg_15_val, basis_pct,
     )
