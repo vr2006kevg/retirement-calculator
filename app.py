@@ -11,23 +11,22 @@ st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 st.title("🚀 Retirement Cashflow & Tax Simulator")
 
 # Usage instructions and disclaimer (moved to top for visibility)
-st.markdown("---")
-st.subheader("How to use this application")
-st.markdown(
-    "- **Adjust inputs in the left sidebar** to set filing status, starting balances, growth rates, spending, Social Security start age, and tax assumptions.\n"
-    "- **Open the 'Edit Tax Brackets & Parameters' expander** to tune brackets, standard deduction, IRMAA thresholds, Social Security and LTCG thresholds for your filing status.\n"
-    "- Use the **'Taxable account realized LTCG (%)'** slider to control the assumed annual realized LTCG from the taxable account.\n"
-    "- Review the charts and the **Withdrawal Plan Details** table for year-by-year results. Use the **Download Plan as XLSX** button to export the full table.\n"
-    "- Change inputs anytime to re-run the simulation — the app recalculates instantly."
-)
-
-st.markdown("---")
-st.subheader("Disclaimer")
-st.markdown(
-    "**This tool provides estimates for educational purposes only and is *not* financial, tax, or legal advice.**\n"
-    "Results are approximate: the app uses simplified tax rules and assumptions (e.g., provisional Social Security taxation, tiered LTCG approximations, and a heuristic for realized gains).\n"
-    "Always consult a qualified tax or financial professional before making decisions based on these results."
-)
+with st.expander("ℹ️ How to use & Disclaimer", expanded=False):
+    st.subheader("How to use this application")
+    st.markdown(
+        "- **Adjust inputs in the left sidebar** to set filing status, starting balances, growth rates, spending, Social Security start age, and tax assumptions.\n"
+        "- **Open the 'Edit Tax Brackets & Parameters' expander** to tune brackets, standard deduction, IRMAA thresholds, Social Security and LTCG thresholds for your filing status.\n"
+        "- Use the **'Taxable account realized LTCG (%)'** slider to control the assumed annual realized LTCG from the taxable account.\n"
+        "- Review the charts and the **Withdrawal Plan Details** table for year-by-year results. Use the **Download Plan as XLSX** button to export the full table.\n"
+        "- Change inputs anytime to re-run the simulation — the app recalculates instantly."
+    )
+    st.markdown("---")
+    st.subheader("Disclaimer")
+    st.markdown(
+        "**This tool provides estimates for educational purposes only and is *not* financial, tax, or legal advice.**\n"
+        "Results are approximate: the app uses simplified tax rules and assumptions (e.g., provisional Social Security taxation, tiered LTCG approximations, and a heuristic for realized gains).\n"
+        "Always consult a qualified tax or financial professional before making decisions based on these results."
+    )
 
 # Default tax parameters (base year values). These populate editable inputs in the sidebar.
 TAX_DEFAULTS = {
@@ -243,127 +242,96 @@ def run_simulation():
 # --- UI OUTPUT ---
 df = run_simulation()
 
-# Summary Metrics
-c1, c2, c3 = st.columns(3)
-with c1:
-    st.metric("Final Net Worth", f"${df['Net Worth'].iloc[-1]:,.0F}")
-with c2:
-    st.metric("Total Tax Paid", f"${df['Tax Paid'].sum():,.0F}")
-with c3:
-    st.metric("Ending Roth Bal", f"${df['Roth Bal'].iloc[-1]:,.0F}")
+tab_summary, tab_cashflow, tab_details = st.tabs(["📈 Summary", "💵 Cashflow", "📋 Details"])
 
-# NEW VISUALIZATIONS
-st.markdown("---")
-chart_col1, chart_col2 = st.columns(2)
+with tab_summary:
+    st.subheader("Key Metrics")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Final Net Worth", f"${df['Net Worth'].iloc[-1]:,.0F}")
+    with c2:
+        st.metric("Total Tax Paid", f"${df['Tax Paid'].sum():,.0F}")
+    with c3:
+        st.metric("Ending Roth Bal", f"${df['Roth Bal'].iloc[-1]:,.0F}")
 
-with chart_col1:
+    st.markdown("---")
     st.subheader("Portfolio Growth & Composition")
-    # Stacked Area Chart for Balances
     st.area_chart(df.set_index("Age")[["401k Bal", "Taxable account Bal", "Roth Bal"]])
     st.caption("Visualizes the depletion of different account types over time.")
 
-with chart_col2:
+with tab_cashflow:
     st.subheader("Annual Income vs Spending")
-    # Multi-series Bar/Line Chart for Cashflow
     cash_flow_df = df[["Age", "Spending", "Social Security"]].copy()
     cash_flow_df["Total Withdrawals"] = df["401k Withdrawal"] + \
         df["Taxable account Withdrawal"] + df["Roth Withdrawal"]
     st.bar_chart(cash_flow_df.set_index("Age"))
-    st.caption(
-        "Shows how Spending is met by Social Security and Portfolio Withdrawals.")
+    st.caption("Shows how Spending is met by Social Security and Portfolio Withdrawals.")
 
-# Data Table
-st.markdown("---")
-st.subheader("Withdrawal Plan Details")
-st.markdown("**Stage Legend:**  ")
-st.markdown("- **Golden Stage**: Early years with healthy assets; minimal withdrawals required.  \n- **Conversion Stage**: Active Roth conversions are happening.  \n- **401k Withdrawal Stage**: Largest withdrawals are from the 401(k).  \n- **Taxable Withdrawal Stage**: Largest withdrawals are from the taxable account.  \n- **Roth Withdrawal Stage**: Largest withdrawals are from the Roth account.  \n- **SS Only**: Social Security alone covers spending.  \n- **Depleted**: Portfolio is exhausted.")
-# Compact table styling: smaller font and reduced cell padding
-st.markdown(
-    """
-    <style>
-    [data-testid="stDataFrame"] table {
-        font-size: 12px;
-        border-collapse: collapse;
+with tab_details:
+    st.subheader("Withdrawal Plan Details")
+    st.markdown("**Stage Legend:**  ")
+    st.markdown("- **Golden Stage**: Early years with healthy assets; minimal withdrawals required.  \n- **Conversion Stage**: Active Roth conversions are happening.  \n- **401k Withdrawal Stage**: Largest withdrawals are from the 401(k).  \n- **Taxable Withdrawal Stage**: Largest withdrawals are from the taxable account.  \n- **Roth Withdrawal Stage**: Largest withdrawals are from the Roth account.  \n- **SS Only**: Social Security alone covers spending.  \n- **Depleted**: Portfolio is exhausted.")
+    
+    # Compact table styling
+    st.markdown(
+        """
+        <style>
+        [data-testid="stDataFrame"] table { font-size: 12px; border-collapse: collapse; }
+        [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td { padding: 6px 8px; }
+        [data-testid="stDataFrame"] tbody tr td { white-space: nowrap; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    # Column header colors
+    color_map = {
+        "Spending": "red", "Tax Paid": "red", "Social Security": "blue",
+        "401k Withdrawal": "blue", "Taxable account Withdrawal": "blue", "Roth Withdrawal": "blue",
+        "Roth Conversion": "blue", "401k Bal": "green", "Taxable account Bal": "green",
+        "Roth Bal": "green", "Net Worth": "green",
     }
-    [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td {
-        padding: 6px 8px;
-    }
-    [data-testid="stDataFrame"] tbody tr td {
-        white-space: nowrap;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-# Apply per-column header colors using pandas Styler
-color_map = {
-    "Spending": "red",
-    "Tax Paid": "red",
-    "Social Security": "blue",
-    "401k Withdrawal": "blue",
-    "Taxable account Withdrawal": "blue",
-    "Roth Withdrawal": "blue",
-    "Roth Conversion": "blue",
-    "401k Bal": "green",
-    "Taxable account Bal": "green",
-    "Roth Bal": "green",
-    "Net Worth": "green",
-}
+    styles = [
+        {"selector": f"th.col_heading.level0.col{i}", "props": [("color", color_map.get(col)), ("font-weight", "bold")]}
+        for i, col in enumerate(df.columns) if col in color_map
+    ]
 
-styles = []
-for i, col in enumerate(df.columns):
-    col_color = color_map.get(col)
-    if col_color:
-        styles.append({
-            "selector": f"th.col_heading.level0.col{i}",
-            "props": [("color", col_color), ("font-weight", "bold")],
-        })
+    numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+    formatters = {col: "{:,.0f}" for col in numeric_cols}
+    styled = df.style.format(formatters).set_table_styles(styles).set_table_attributes('class="withdrawal-plan-table"')
+    html = styled.to_html()
+    st.markdown(
+        '<style>.withdrawal-plan-table tbody tr:hover{background-color:#fff2cc; cursor:pointer}</style>' + html,
+        unsafe_allow_html=True,
+    )
 
-# Apply numeric formatting only to numeric columns to avoid formatting errors for string columns
-numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-formatters = {col: "{:,.0f}" for col in numeric_cols}
-styled = df.style.format(formatters).set_table_styles(styles).set_table_attributes('class="withdrawal-plan-table"')
-# Render the styled DataFrame as HTML so the header styles are preserved and add hover CSS
-html = styled.to_html()
-st.markdown(
-    '<style>.withdrawal-plan-table tbody tr:hover{background-color:#fff2cc; cursor:pointer}</style>' + html,
-    unsafe_allow_html=True,
-)
+    st.markdown("---")
+    
+    # Excel Download
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        df.to_excel(writer, sheet_name="Withdrawal Plan", index=False)
+        workbook = writer.book
+        worksheet = writer.sheets["Withdrawal Plan"]
+        money_fmt = workbook.add_format({"num_format": "#,##0", "align": "right"})
+        hdr_fmt = workbook.add_format({"bold": True, "bg_color": "#CFE2F3", "border": 1})
+        worksheet.set_column("A:A", 24)
+        worksheet.set_column("B:B", 8)
+        worksheet.set_column("C:L", 18, money_fmt)
+        for col_num, value in enumerate(df.columns.values):
+            worksheet.write(0, col_num, value, hdr_fmt)
 
-# Excel Download
-buffer = io.BytesIO()
-with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-    df.to_excel(writer, sheet_name="Withdrawal Plan", index=False)
-    workbook = writer.book
-    worksheet = writer.sheets["Withdrawal Plan"]
+    st.download_button("📥 Download Plan as XLSX", buffer.getvalue(), "RetirementPlan.xlsx")
 
-    # Formats
-    money_fmt = workbook.add_format({"num_format": "#,##0", "align": "right"})
-    hdr_fmt = workbook.add_format(
-        {"bold": True, "bg_color": "#CFE2F3", "border": 1})
+    with st.expander("Download Notes"):
+        st.markdown("- The XLSX file contains the full yearly simulation table including balances, withdrawals, conversions, and taxes.")
+        st.markdown("- Values are presented in rounded whole dollars; use the dataframe in the app for interactive inspection.")
+        st.markdown("- To update the exported plan, change assumptions in the sidebar (growth, spending, taxes) and re-download.")
 
-    # Apply formatting
-    worksheet.set_column("A:A", 24)  # Retirement Stage
-    worksheet.set_column("B:B", 8)   # Age
-    worksheet.set_column("C:L", 18, money_fmt)  # All money columns
-    for col_num, value in enumerate(df.columns.values):
-        worksheet.write(0, col_num, value, hdr_fmt)
-
-st.download_button("📥 Download Plan as XLSX",
-                   buffer.getvalue(), "RetirementPlan.xlsx")
-
-# Descriptive notes about the downloaded file
-st.markdown("**Download Notes:**")
-st.markdown("- The XLSX file contains the full yearly simulation table including balances, withdrawals, conversions, and taxes.")
-st.markdown("- Values are presented in rounded whole dollars; use the dataframe in the app for interactive inspection.")
-st.markdown("- To update the exported plan, change assumptions in the sidebar (growth, spending, taxes) and re-download.")
-
-# Reference links
-st.markdown("---")
-st.markdown("**References & Source Links**")
-st.markdown("- [Federal income tax rates and brackets](https://www.irs.gov/filing/federal-income-tax-rates-and-brackets)")
-st.markdown("- [IRS — Standard Deduction (overview)](https://apps.irs.gov/app/vita/content/00/00_13_005.jsp)")
-st.markdown("- [IRS Publication 590-B — Required Minimum Distributions (RMDs)](https://www.irs.gov/publications/p590b)")
-st.markdown("- [IRS — Capital Gains and Losses (long-term capital gains guidance)](https://www.irs.gov/taxtopics/tc409)")
-st.markdown("- [IRS reminds taxpayers their Social Security benefits may be taxable](https://www.irs.gov/newsroom/irs-reminds-taxpayers-their-social-security-benefits-may-be-taxable)")
-st.markdown("- [Social Security Administration — Medicare costs & IRMAA information](https://www.ssa.gov/benefits/medicare/medicare-premiums.html)")
+with st.expander("📚 References & Source Links"):
+    st.markdown("- [Federal income tax rates and brackets](https://www.irs.gov/filing/federal-income-tax-rates-and-brackets)")
+    st.markdown("- [IRS — Standard Deduction (overview)](https://apps.irs.gov/app/vita/content/00/00_13_005.jsp)")
+    st.markdown("- [IRS Publication 590-B — Required Minimum Distributions (RMDs)](https://www.irs.gov/publications/p590b)")
+    st.markdown("- [IRS — Capital Gains and Losses (long-term capital gains guidance)](https://www.irs.gov/taxtopics/tc409)")
+    st.markdown("- [IRS reminds taxpayers their Social Security benefits may be taxable](https://www.irs.gov/newsroom/irs-reminds-taxpayers-their-social-security-benefits-may-be-taxable)")
+    st.markdown("- [Social Security Administration — Medicare costs & IRMAA information](https://www.ssa.gov/benefits/medicare/medicare-premiums.html)")
