@@ -132,7 +132,7 @@ with st.sidebar:
         st.session_state.setdefault(ltcg_15_key, ltcg_15_val)
         st.session_state.setdefault(f"{key_base}_ltcg_captured", (ltcg_0_val, ltcg_15_val))
 
-        if st.button("Reset tax defaults for this status"):
+        def reset_defaults():
             # Restore base defaults for this filing status
             for i, (rate, lim) in enumerate(tax_brackets["brackets"]):
                 st.session_state[f"{key_base}_bracket_{i}"] = lim
@@ -142,7 +142,8 @@ with st.sidebar:
             st.session_state[ss_upper_key] = ss_defaults[1]
             st.session_state[ltcg_0_key] = ltcg_defaults["0"]
             st.session_state[ltcg_15_key] = ltcg_defaults["15"]
-            st.experimental_rerun()
+
+        st.button("Reset tax defaults for this status", on_click=reset_defaults)
 
     start_age = st.number_input("Retirement Age", value=65)
     end_age = st.number_input("Plan Until Age", value=95)
@@ -366,5 +367,3 @@ st.markdown("- [IRS Publication 590-B — Required Minimum Distributions (RMDs)]
 st.markdown("- [IRS — Capital Gains and Losses (long-term capital gains guidance)](https://www.irs.gov/taxtopics/tc409)")
 st.markdown("- [IRS reminds taxpayers their Social Security benefits may be taxable](https://www.irs.gov/newsroom/irs-reminds-taxpayers-their-social-security-benefits-may-be-taxable)")
 st.markdown("- [Social Security Administration — Medicare costs & IRMAA information](https://www.ssa.gov/benefits/medicare/medicare-premiums.html)")
-
-
